@@ -44,90 +44,59 @@ def moving_average(data, window):
 
 
 def test_replay_dqn():
-    batch_size = 64
-    n_episodes = 5000
-    epsilon_start = 0.2
+    batch_size = 32
+    n_episodes = 20000
+    epsilon_start = 0.6
     epsilon_end = 0.05
-    decay_end = 20000
-    lr = 1e-4
+    decay_end = 5000
+    lr = 1e-3
     discount_factor = 0.99
     update_steps = 50
-    memory_size = 3000
+    memory_size = 5000
     update_frequency = 2
     replay_start_size = 100
-    env = gym.make("Switch2-v0")
-    eval_env = gym.make("Switch2-v0")
+    env = gym.make("Switch4-v0")
+
+    def epsilon(x): return (epsilon_start-epsilon_end) * \
+        ((decay_end - x)/decay_end) + epsilon_end if x < decay_end else 0.01
+
+    agent_class = DDQN
+    agents = [agent_class(2, 5, discount=discount_factor, epsilon=epsilon,
+                          batch_size=batch_size, lr=lr, update_steps=update_steps, memory_size=memory_size) for x in range(env.n_agents)]
     shutil.rmtree("recordings", ignore_errors=True)
     shutil.rmtree("eval_recordings", ignore_errors=True)
     env = Monitor(env, directory='recordings',
                   video_callable=lambda episode_id: episode_id % 200 == 0)
-    eval_env = Monitor(eval_env, directory="eval_recordings")
-    def epsilon(x): return (epsilon_start-epsilon_end) * \
-        ((decay_end - x)/decay_end) + epsilon_end if x < decay_end else 0.01
-    agent1 = DQN(
-        2, 5, discount=discount_factor, epsilon=epsilon, batch_size=batch_size, lr=lr, update_steps=update_steps, memory_size=memory_size)
-    agent2 = DQN(
-        2, 5, discount=discount_factor, epsilon=epsilon, batch_size=batch_size, lr=lr, update_steps=update_steps, memory_size=memory_size)
 
     pbar = trange(n_episodes, desc="Prev Reward: ", leave=True)
     episode_rewards = []
-    eval_rewards = []
-    eval_ = False
     for episode in pbar:
         total_reward = 0
         done_n = [False, False]
-        obs_1, obs_2 = env.reset()
-        act_1 = agent1.act(torch.tensor(obs_1), episode=episode)
-        act_2 = agent2.act(torch.tensor(obs_2), episode=episode)
-        obs_n, reward_n, done_n, info = env.step([act_1, act_2])
+        obs_n = env.reset()
+        acts = [agents[i].act(torch.tensor(obs_n[i]), episode=episode)
+                for i in range(env.n_agents)]
+        obs_n, reward_n, done_n, info = env.step(acts)
         counter = 1
         while not all(done_n):
-            act_1 = agent1.step(reward_n[0], torch.tensor(
-                obs_n[0]), done_n[0], episode=episode)
-            act_2 = agent2.step(reward_n[1], torch.tensor(
-                obs_n[1]), done_n[1], episode=episode)
-            obs_n, reward_n, done_n, info = env.step([act_1, act_2])
+            # env.render()
+            acts = [agents[i].step(reward_n[i], torch.tensor(
+                obs_n[i]), done_n[i], episode=episode) for i in range(env.n_agents)]
+            obs_n, reward_n, done_n, info = env.step(acts)
             counter += 1
             total_reward += np.sum(reward_n)
 
-            if len(agent1.replay_buffer) > replay_start_size and counter % update_frequency == 0:
-                agent1.learn()
-                agent2.learn()
+            if len(agents[0].replay_buffer) > replay_start_size and counter % update_frequency == 0:
+                [agent.learn() for agent in agents]
 
-        agent1.save(reward_n[0], torch.tensor(obs_n[0]),  done_n[0])
-        agent2.save(reward_n[1], torch.tensor(obs_n[1]),  done_n[1])
+        for i in range(env.n_agents):
+            agents[i].save(reward_n[i], torch.tensor(obs_n[i]),  done_n[i])
         episode_rewards.append(total_reward)
         pbar.set_description(
             f"Avg Reward: {np.mean(episode_rewards[-20:]):2.0f}", refresh=True)
 
-        # if eval_ and episode % 100 == 0:
-        #     eval_reward = 0
-        #     eval_done_n = [False, False]
-        #     eval_obs_1, eval_obs_2 = eval_env.reset()
-        #     eval_act_1 = agent1.act(torch.tensor(
-        #         eval_obs_1), episode=episode, eval=True)
-        #     eval_act_2 = agent2.act(torch.tensor(
-        #         eval_obs_2), episode=episode, eval=True)
-        #     eval_obs_n, eval_reward_n, eval_done_n, info = eval_env.step(
-        #         [eval_act_1, eval_act_2])
-        #     counter = 1
-        #     while not all(eval_done_n):
-        #         eval_act_1 = agent1.step(eval_reward_n[0], torch.tensor(
-        #             eval_obs_n[0]), eval_done_n[0], episode=episode, eval=True)
-        #         eval_act_2 = agent2.step(eval_reward_n[1], torch.tensor(
-        #             eval_obs_n[1]), eval_done_n[1], episode=episode, eval=True)
-        #         eval_obs_n, eval_reward_n, eval_done_n, info = eval_env.step([
-        #             eval_act_1, eval_act_2])
-        #         counter += 1
-        #         eval_reward += np.sum(eval_reward_n)
-        #     eval_rewards.append(eval_reward)
-
+    np.save("./episode_rewards.npy", episode_rewards)
     plot_results(episode_rewards, epsilon)
-    if eval_:
-        plt.figure()
-        plt.plot(np.arange(len(eval_rewards))*100,
-                 eval_rewards, label="Eval. Reward")
-        plt.legend()
     plt.show()
 
 

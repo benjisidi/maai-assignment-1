@@ -147,6 +147,9 @@ class DDQN:
         return loss
 
     def act(self, obs, episode, eval=False):
+        models = [self.model_A, self.model_B]
+        pred_index = np.random.choice([0, 1])
+        model = models[pred_index]
         if not eval:
             if callable(self.epsilon):
                 explore = np.random.rand() <= self.epsilon(episode)
@@ -154,8 +157,8 @@ class DDQN:
                 explore = np.random.rand() <= self.epsilon
         else:
             explore = False
-            self.model.train(False)
-        next_values = self.model.forward(obs)
+            model.train(False)
+        next_values = model.forward(obs)
         self.prev_obs = obs
         if explore:
             action = torch.tensor(
@@ -163,7 +166,7 @@ class DDQN:
             self.prev_action = action
             return action
         self.prev_action = torch.argmax(next_values)
-        self.model.train(True)
+        model.train(True)
         action = torch.argmax(next_values)
         return action
 
