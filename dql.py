@@ -4,16 +4,17 @@ import torch
 import numpy as np
 
 
-def get_q_network(state_action_dims, action_space, hidden_size=100):
+def get_q_network(state_action_dims, action_space, hidden_size=32):
     return torch.nn.Sequential(
         torch.nn.Linear(state_action_dims, hidden_size),
         torch.nn.ReLU(),
+        torch.nn.Dropout(),
         torch.nn.Linear(
             int(hidden_size),
-            int(hidden_size/2)
+            int(hidden_size*2)
         ),
         torch.nn.ReLU(),
-        torch.nn.Linear(int(hidden_size/2),
+        torch.nn.Linear(int(hidden_size*2),
                         action_space),
     )
 
@@ -79,7 +80,14 @@ class DQAgentExperience:
         loss = self.loss_fn(selected_preds.squeeze(), updated_preds)
         return loss
 
-    def act(self, obs, explore):
+    def act(self, obs, episode, eval):
+        if not eval:
+            if callable(self.epsilon):
+                explore = np.random.rand() <= self.epsilon(episode)
+            else:
+                explore = np.random.rand() <= self.epsilon
+        else:
+            explore = False
         next_values = self.model.forward(obs)
         self.prev_obs = obs
         if explore:
@@ -91,15 +99,9 @@ class DQAgentExperience:
         return torch.argmax(next_values)
 
     def step(self, reward, next_state, dead, episode, eval=False):
-        if not eval:
-            if callable(self.epsilon):
-                explore = np.random.rand() < self.epsilon(episode)
-            else:
-                explore = np.random.rand() < self.epsilon
-        else:
-            explore = False
+
         self.save(reward, next_state, dead)
-        return self.act(next_state, explore=explore)
+        return self.act(next_state, episode, eval=eval)
 
     def save(self, reward, next_state, dead):
         self.replay_buffer.append(
