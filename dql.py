@@ -8,13 +8,19 @@ def get_q_network(state_action_dims, action_space, hidden_size=32):
     return torch.nn.Sequential(
         torch.nn.Linear(state_action_dims, hidden_size),
         torch.nn.ReLU(),
-        torch.nn.Dropout(),
         torch.nn.Linear(
             int(hidden_size),
             int(hidden_size*2)
         ),
         torch.nn.ReLU(),
-        torch.nn.Linear(int(hidden_size*2),
+        torch.nn.Dropout(),
+        torch.nn.Linear(
+            int(hidden_size*2),
+            int(hidden_size*4)
+        ),
+        torch.nn.ReLU(),
+        torch.nn.Dropout(),
+        torch.nn.Linear(int(hidden_size*4),
                         action_space),
     )
 
@@ -24,7 +30,8 @@ class DQAgent:
         self.state_size = state_size
         self.action_space = action_space
         self.model = get_q_network(state_size, action_space)
-        self.optimizer = torch.optim.Adam(params=self.model.parameters())
+        self.optimizer = torch.optim.Adam(
+            params=self.model.parameters(), lr=1e-4)
         self.discount = discount
         self.prev_obs = None
         self.prev_action = None
@@ -88,6 +95,7 @@ class DQAgentExperience:
                 explore = np.random.rand() <= self.epsilon
         else:
             explore = False
+            self.model.train(False)
         next_values = self.model.forward(obs)
         self.prev_obs = obs
         if explore:
@@ -96,10 +104,10 @@ class DQAgentExperience:
             self.prev_action = action
             return action
         self.prev_action = torch.argmax(next_values)
+        self.model.train(True)
         return torch.argmax(next_values)
 
     def step(self, reward, next_state, dead, episode, eval=False):
-
         self.save(reward, next_state, dead)
         return self.act(next_state, episode, eval=eval)
 
