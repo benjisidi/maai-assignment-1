@@ -43,7 +43,7 @@ class ReplayBuffer:
 
 
 class DQN:
-    def __init__(self, state_size, action_space, discount, epsilon, batch_size, lr, update_steps, memory_size):
+    def __init__(self, state_size, action_space, discount, epsilon, batch_size, lr, update_steps, memory_size, max_noop):
         self.state_size = state_size
         self.action_space = action_space
         self.model = get_q_network(state_size, action_space)
@@ -59,6 +59,8 @@ class DQN:
         self.batch_size = batch_size
         self.update_steps = update_steps
         self.update_counter = 0
+        self.max_noop = max_noop
+        self.noop_count = 0
 
     def update_target_model(self):
         self.target_model.load_state_dict(self.model.state_dict())
@@ -72,30 +74,32 @@ class DQN:
         loss = self.loss_fn(selected_preds.squeeze(), target)
         return loss
 
-    def act(self, obs, episode, eval=False):
-        if not eval:
-            if callable(self.epsilon):
-                explore = np.random.rand() <= self.epsilon(episode)
-            else:
-                explore = np.random.rand() <= self.epsilon
+    def act(self, obs, episode):
+        if callable(self.epsilon):
+            explore = np.random.rand() <= self.epsilon(episode)
         else:
-            explore = False
-            self.model.train(False)
+            explore = np.random.rand() <= self.epsilon
         next_values = self.model.forward(obs)
-        self.prev_obs = obs
+        action = torch.argmax(next_values)
+        if action == 4:
+            if self.noop_count >= self.max_noop:
+                explore = True
+                self.noop_count = 0
+            else:
+                self.noop_count += 1
+
+        else:
+            self.noop_count = 0
         if explore:
             action = torch.tensor(
                 np.random.choice(range(self.action_space)))
-            self.prev_action = action
-            return action
-        self.prev_action = torch.argmax(next_values)
-        self.model.train(True)
-        action = torch.argmax(next_values)
+        self.prev_action = action
+        self.prev_obs = obs
         return action
 
-    def step(self, reward, next_state, dead, episode, eval=False):
+    def step(self, reward, next_state, dead, episode):
         self.save(reward, next_state, dead)
-        return self.act(next_state, episode, eval=eval)
+        return self.act(next_state, episode)
 
     def save(self, reward, next_state, dead):
         self.replay_buffer.save(

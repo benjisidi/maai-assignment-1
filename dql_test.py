@@ -43,32 +43,36 @@ def moving_average(data, window):
 #         pbar.set_description(f"Prev Reward: {total_reward:.0f}", refresh=True)
 
 
-def test_replay_dqn():
+def test_replay_dqn(lr):
     batch_size = 32
-    n_episodes = 20000
-    epsilon_start = 0.6
-    epsilon_end = 0.05
-    decay_end = 5000
-    lr = 1e-3
+    n_episodes = 40000
+    epsilon_start = 1
+    epsilon_end = 0.2
+    decay_end = 30000
+    # lr = 1e-3
     discount_factor = 0.99
     update_steps = 50
-    memory_size = 5000
+    memory_size = 15000
     update_frequency = 2
     replay_start_size = 100
-    env = gym.make("Switch4-v0")
+    max_noop = 3
+    env = gym.make("Switch2-v0")
+
+    state_size = len(env.reset()[0])
+    action_space_size = env.action_space[0].n
 
     def epsilon(x): return (epsilon_start-epsilon_end) * \
-        ((decay_end - x)/decay_end) + epsilon_end if x < decay_end else 0.01
+        ((decay_end - x)/decay_end) + \
+        epsilon_end if x < decay_end else epsilon_end
 
-    agent_class = DDQN
-    agents = [agent_class(2, 5, discount=discount_factor, epsilon=epsilon,
-                          batch_size=batch_size, lr=lr, update_steps=update_steps, memory_size=memory_size) for x in range(env.n_agents)]
+    agent_class = DQN
+    agents = [agent_class(state_size, action_space_size, discount=discount_factor, epsilon=epsilon,
+                          batch_size=batch_size, lr=lr, update_steps=update_steps, memory_size=memory_size, max_noop=max_noop) for x in range(env.n_agents)]
     shutil.rmtree("recordings", ignore_errors=True)
-    shutil.rmtree("eval_recordings", ignore_errors=True)
     env = Monitor(env, directory='recordings',
                   video_callable=lambda episode_id: episode_id % 200 == 0)
 
-    pbar = trange(n_episodes, desc="Prev Reward: ", leave=True)
+    pbar = trange(n_episodes, desc="Rwd: E:", leave=True)
     episode_rewards = []
     for episode in pbar:
         total_reward = 0
@@ -93,11 +97,13 @@ def test_replay_dqn():
             agents[i].save(reward_n[i], torch.tensor(obs_n[i]),  done_n[i])
         episode_rewards.append(total_reward)
         pbar.set_description(
-            f"Avg Reward: {np.mean(episode_rewards[-20:]):2.0f}", refresh=True)
+            f"Rwd: {np.mean(episode_rewards[-20:]):.2f} E: {epsilon(episode):.3f}", refresh=True)
 
-    np.save("./episode_rewards.npy", episode_rewards)
+    np.save(f"./episode_rewards_{lr:.0e}.npy", episode_rewards)
     plot_results(episode_rewards, epsilon)
-    plt.show()
+    plt.title(f"Switch2-v0 DQN avg reward, lr={lr:.0e}")
+    plt.savefig(f"./rewards_{lr:.0e}.png")
+    # plt.show()
 
 
 def plot_results(rewards, epsilon, n=50):
@@ -118,4 +124,5 @@ def plot_results(rewards, epsilon, n=50):
 
 
 if __name__ == "__main__":
-    test_replay_dqn()
+    lr = 1e-3
+    test_replay_dqn(lr)
